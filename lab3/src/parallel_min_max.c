@@ -15,6 +15,7 @@
 #include "find_min_max.h"
 #include "utils.h"
 
+
 int main(int argc, char **argv) {
   int seed = -1;
   int array_size = -1;
@@ -39,20 +40,38 @@ int main(int argc, char **argv) {
       case 0:
         switch (option_index) {
           case 0:
-            seed = atoi(optarg);
-            // your code here
+            seed = atoi(optarg);  //преобразуем строку с аргументом в число
+
             // error handling
+            if(seed <= 0)
+            {
+                printf("seed is a positive number\n");
+                return 1;
+            }
             break;
+
           case 1:
-            array_size = atoi(optarg);
-            // your code here
+            array_size = atoi(optarg); //размер массива
+
             // error handling
+            if(array_size <= 0)
+            {
+            printf("array_size is a positive number\n");
+            return 1;
+            }
             break;
+
           case 2:
             pnum = atoi(optarg);
-            // your code here
+
             // error handling
+            if(pnum <= 0)
+            {
+            printf("pnum is a positive number\n");
+            return 1;
+            }
             break;
+
           case 3:
             with_files = true;
             break;
@@ -61,11 +80,11 @@ int main(int argc, char **argv) {
             printf("Index %d is out of options\n", option_index);
         }
         break;
-      case 'f':
+      case 'f':  //использование файлов
         with_files = true;
         break;
 
-      case '?':
+      case '?':  // найдена недействительная опция или опция не распознана 
         break;
 
       default:
@@ -88,9 +107,18 @@ int main(int argc, char **argv) {
   GenerateArray(array, array_size, seed);
   int active_child_processes = 0;
 
+
+ //создание pipe
+  int fd[2];
+  pipe(fd);
+  //fd[0]-указывает на конец канала для чтения
+  //fg[1]-указывает на конец канала для записи
+
   struct timeval start_time;
   gettimeofday(&start_time, NULL);
 
+
+//разбиваем массив на pnum отрезков 
   for (int i = 0; i < pnum; i++) {
     pid_t child_pid = fork();
     if (child_pid >= 0) {
@@ -99,12 +127,25 @@ int main(int argc, char **argv) {
       if (child_pid == 0) {
         // child process
 
+        //задаем границы i-го отрезка
+        int begin = i*(array_size/pnum);   
+        int end = (i+1 == pnum) ? array_size : begin + array_size/pnum;
+
+        //ищем на этом отрезке минимум и максимум
+        struct MinMax min_max = GetMinMax(array,begin,end);
+
         // parallel somehow
 
         if (with_files) {
           // use files here
+          FILE *fin;
+          fin = fopen("output.txt", "a+"); //открытие для чтения и дописывания в конец (создается, если не существовало)
+          fprintf(fin, "%d %d\n", min_max.min, min_max.max); //записываем в файл минимальное и максимальное на отрезке
+          fclose(fin);
         } else {
           // use pipe here
+          write(fd[1],&min_max.max,sizeof(int));
+          write(fd[1],&min_max.min,sizeof(int));
         }
         return 0;
       }
@@ -117,6 +158,7 @@ int main(int argc, char **argv) {
 
   while (active_child_processes > 0) {
     // your code here
+    wait(NULL); //NULL т.к. нам не нужно запоминать информацию о статусе завершения процесса
 
     active_child_processes -= 1;
   }
@@ -125,20 +167,31 @@ int main(int argc, char **argv) {
   min_max.min = INT_MAX;
   min_max.max = INT_MIN;
 
+  FILE *fin;
+  fin = fopen("output.txt", "a+");
+
   for (int i = 0; i < pnum; i++) {
-    int min = INT_MAX;
-    int max = INT_MIN;
+    int min ; //= INT_MAX;
+    int max ; //= INT_MIN;
 
     if (with_files) {
       // read from files
+      //FILE *fin;
+      //fin = fopen("output.txt", "r"); //открываем для чтения
+      fscanf(fin, "%d %d\n", &min, &max); //считываем пары минимальное-максимальное
+      //printf("%d  %d\n",min, max);
+      
     } else {
       // read from pipes
+      read(fd[0], &max, sizeof(int));
+      read(fd[0], &min, sizeof(int));
     }
-
+    
+    //сравнивая, находим минимум и максимум среди минимумов и максимумов отрезков
     if (min < min_max.min) min_max.min = min;
     if (max > min_max.max) min_max.max = max;
   }
-
+  fclose(fin);
   struct timeval finish_time;
   gettimeofday(&finish_time, NULL);
 
@@ -146,6 +199,8 @@ int main(int argc, char **argv) {
   elapsed_time += (finish_time.tv_usec - start_time.tv_usec) / 1000.0;
 
   free(array);
+  close(fd[0]);
+  close(fd[1]);
 
   printf("Min: %d\n", min_max.min);
   printf("Max: %d\n", min_max.max);
